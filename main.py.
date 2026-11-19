@@ -1,0 +1,156 @@
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.button import Button
+
+
+SAMPLE_ITEMS = [
+    {
+        "sku": "SKU-101",
+        "name": "Thermal Labels",
+        "supplier": "Express",
+        "qty": 80,
+        "unit_price": 4.9,
+        "stock": 15,
+        "avg_daily": 5.19,
+    },
+    {
+        "sku": "SKU-303",
+        "name": "Packing Tape",
+        "supplier": "PackPro",
+        "qty": 120,
+        "unit_price": 2.5,
+        "stock": 12,
+        "avg_daily": 2.8,
+    },
+]
+
+
+def evaluate_budget(items, max_budget):
+    enriched = []
+    for it in items:
+        total_cost = round(it["qty"] * it["unit_price"], 2)
+        days_left = (
+            round(it["stock"] / it["avg_daily"], 1)
+            if it["avg_daily"] > 0
+            else 999.0
+        )
+        enriched.append({**it, "total_cost": total_cost, "days_left": days_left})
+
+    ordered = sorted(enriched, key=lambda x: (x["days_left"], x["total_cost"]))
+
+    remaining = round(max_budget, 2)
+    approved = []
+    deferred = []
+
+    for po in ordered:
+        if po["total_cost"] <= remaining:
+            approved.append(po)
+            remaining = round(remaining - po["total_cost"], 2)
+        else:
+            deferred.append(
+                {
+                    **po,
+                    "reason": f"Exceeds remaining budget ({remaining})",
+                }
+            )
+
+    spent = round(max_budget - remaining, 2)
+    return {
+        "max_budget": round(max_budget, 2),
+        "spent_budget": spent,
+        "remaining_budget": remaining,
+        "approved": approved,
+        "deferred": deferred,
+    }
+
+
+class PoAppLayout(BoxLayout):
+    def __init__(self, **kwargs):
+        super().__init__(orientation="vertical", padding=12, spacing=10, **kwargs)
+
+        self.add_widget(
+            Label(
+                text="PO & Budget Manager",
+                size_hint_y=None,
+                height=40,
+                bold=True,
+            )
+        )
+
+        input_row = BoxLayout(size_hint_y=None, height=44, spacing=8)
+        self.budget_input = TextInput(
+            text="500.0",
+            multiline=False,
+            input_filter="float",
+        )
+        calc_btn = Button(text="Calculate", size_hint_x=0.35)
+        calc_btn.bind(on_press=self.refresh_output)
+
+        input_row.add_widget(self.budget_input)
+        input_row.add_widget(calc_btn)
+        self.add_widget(input_row)
+
+        scroll = ScrollView()
+        self.result_label = Label(
+            text="",
+            size_hint_y=None,
+            halign="left",
+            valign="top",
+        )
+        self.result_label.bind(
+            texture_size=lambda inst, val: setattr(inst, "height", val[1] + 20),
+            width=lambda inst, val: setattr(inst, "text_size", (val, None)),
+        )
+        scroll.add_widget(self.result_label)
+        self.add_widget(scroll)
+
+        self.refresh_output()
+
+    def refresh_output(self, *_args):
+        try:
+            max_b = float(self.budget_input.text.strip())
+        except ValueError:
+            max_b = 0.0
+
+        res = evaluate_budget(SAMPLE_ITEMS, max_b)
+
+        lines = [
+            f"Budget: {res['max_budget']} | Spent: {res['spent_budget']} | Remaining: {res['remaining_budget']}",
+            "",
+            f"Approved POs ({len(res['approved'])}):",
+        ]
+        if not res["approved"]:
+            lines.append("  - None")
+        else:
+            for item in res["approved"]:
+                lines.append(
+                    f"  - {item['sku']} ({item['name']}) | {item['supplier']} | "
+                    f"Qty: {item['qty']} | Cost: {item['total_cost']} | Days left: {item['days_left']}"
+                )
+
+        lines.append("")
+        lines.append(f"Deferred POs ({len(res['deferred'])}):")
+        if not res["deferred"]:
+            lines.append("  - None")
+        else:
+            for item in res["deferred"]:
+                lines.append(
+                    f"  - {item['sku']} ({item['name']}) | {item['supplier']} | "
+                    f"Qty: {item['qty']} | Cost: {item['total_cost']} | Days left: {item['days_left']}"
+                )
+                lines.append(f"    Reason: {item['reason']}")
+
+        self.result_label.text = "\n".join(lines)
+
+
+class PoBudgetApp(App):
+    def build(self):
+        self.title = "PO Budget App"
+        return PoAppLayout()
+
+
+if __name__ == "__main__":
+    PoBudgetApp().run()
